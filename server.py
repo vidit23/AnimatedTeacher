@@ -2,7 +2,8 @@ from moviepy.editor import *
 from google.cloud import storage
 import openai
 from flask import Flask
-from flask import request
+from flask import request, jsonify
+from flask_cors import CORS
 import datefinder
 import datetime
 import json
@@ -18,7 +19,7 @@ from google.cloud import speech
 from pydub import AudioSegment
 
 app = Flask(__name__)
-
+CORS(app)
 
 def downloadYoutubeVideo(url):
     # where to save  
@@ -93,7 +94,7 @@ def transcribe_gcs(gcs_uri):
 
 
 
-def getDates(text):
+def getDatesFromTranscript(text):
     spokenText = text.lower()
 
     today = datetime.datetime.now()
@@ -126,25 +127,7 @@ def questionGeneration(text, num = 5):
     return que, ans
 
 
-
-
-
-
 # downloadYoutubeVideo("https://www.youtube.com/watch?v=6M5VXKLf4D4")
-
-# # text = "for this introduction to the coasts on deep learning which will be offered to rain. So are they planning has become very prevalent and it is finds application to Divine ratio of areas such as speech computer vision natural language processing like most of the state-of-the-art systems in these areas from companies hey Google Facebook excetra use deep learning as the underlying Solution on some of the foundational all the phone number to the blocks of deep learning in particular start right from the basics and starts on perception or a sigmoid new single neuron and Sunday we try to go to multi-layer network of neurons and multi-layer perceptron as it is commonly known so and you look at other things for training sets networks and their specific backpropagation which uses gradient descent and then look at several applications. tl;dr: "
-# datePrompt = "\n Tomorrow is"
-
-# print(questionGeneration(text, n=5))
-# # print(openai.Engine.list())
-
-
-# print(openai.Completion.create(
-#   engine="davinci",
-#   prompt=text + datePrompt,
-#   temperature=0.4,
-#   max_tokens=20
-# ))
 
 @app.route('/getAudioAnalysis', methods=['GET'])
 def getAudioAnalysis():
@@ -175,30 +158,65 @@ def getAudioAnalysis():
     transcript = transcribe_gcs("gs://audio-files-zoom/" + audioFileName)
     print("Finished extracting the transcript from uploaded audio file", "\n")
 
-    # transcript = "Depending has become very prevalent and finds applications Divine ratio of areas such as speech computer vision natural \
-    #             language processing like most of the state-of-the-art systems in these areas from even now companies like Google \
-    #             Facebook, excetra use deep learning as the underlying solution and the schools will learn some of the foundational all \
-    #             the phone number to the block off deep learning in particular mean start right from the basics and start on Pacific or a \
-    #             sigmoid new single neuron and Sunday. We try to go to multi-layer network of neurons are multi-layer perceptron as it is \
-    #             commonly known so and you look at other things for training sets networks and their specific backpropagation, which uses \
-    #             gradient descent. I didn't even look at several applications of feed-forward neural networks Lake autoencoders and were \
-    #             two against one. Then we move on to the next type of neural networks, which is recurrent neural networks, which find \
-    #             applications in areas where you have to deal with sequences. So sequences that again omnipresent you have sequences in \
-    #             natural language text when you talk of a sentence you can think of it as a sequence of words inside words themselves. \
-    #             You can think of them as sequence of characters."
+    # transcript = ""
+    
+    response = {"transcript": transcript}
 
-    # if 
-
-    return transcript
+    if request.args.get('summarize'):
+        tldrPrompt = transcript + "\n\ntl;dr: "
+        completion = openai.Completion.create(
+            engine="davinci", prompt=tldrPrompt, temperature=0.3, max_tokens=60,
+            top_p=1.0, frequency_penalty=0.0, presence_penalty=0.0 )
+        print("Summary Generated", completion, "\n\n")
+        response["summarize"] = completion["choices"][0]["text"]
 
 
+    if request.args.get('simplify'):
+        simplifyPrompt = "My second grader asked me what this passage means:\n\"\"\"\n" + \
+                        transcript + \
+                        "\n\"\"\"\nI rephrased it for him, in plain language a second grader can understand:\n\"\"\"\n",
+        completion = openai.Completion.create(
+            engine="davinci", prompt=simplifyPrompt, temperature=0, max_tokens=60,
+            top_p=1.0, frequency_penalty=0.0, presence_penalty=0.0, stop=["\"\"\""] )
+        
+        print("Simplification Generated", completion, "\n\n")
+        response["simplify"] = completion["choices"][0]["text"]
 
+    if request.args.get('dates'):
+        dates = getDatesFromTranscript(transcript)
+        print("Dates Generated ", dates, "\n\n")
+        response["dates"] = dates
 
-# print(openai.Completion.create(
-#     engine="davinci",
-#     prompt="hi, my name is",
-#     max_tokens=16
-# ))
+    if request.args.get('qna'):
+        questions, answers = questionGeneration(transcript, num=5)
+        print("Questions Generated ", questions, answers, "\n\n")
+        response["qna"] = {"questions": questions, "answers": answers}
+    
+
+    # response = "{\"transcript\": \" Depending has become very prevalent and finds applications Divine ratio of areas such as speech \
+    #             computer vision natural language processing like most of the state-of-the-art systems in these areas from even now \
+    #             companies like Google Facebook, excetra use deep learning as the underlying solution to end. This course will learn some \
+    #             of the foundational all the phone number to the block off deep learning in particular mean start right from the basics \
+    #             and start on perception or a sigmoid new single neuron and Sunday. We try to go to multi-layer network of neurons are \
+    #             multi-layer perceptron as it is commonly known so and you look at other things for training sets networks and their \
+    #             specific backpropagation, which uses gradient descent. I didn't even look at several applications of feed-forward neural \
+    #             networks Lake autoencoders and were two against one. Then we move on to the next type of neural networks, which is \
+    #             recurrent neural networks, which find applications in areas where you have to deal with sequences. So sequences that \
+    #             again omnipresent you have sequences in natural language text when you talk of a sentence you can think of it as a \
+    #             sequence of words inside words themselves. You can think of them as sequence of characters.\", \"summarize\": \
+    #             \"\u0e2d\u0e22\u0e32\u0e01\u0e40\u0e23\u0e35\u0e22\u0e19 Deep Learning \
+    #             \u0e01\u0e47\u0e40\u0e25\u0e22\u0e2d\u0e22\u0e32\u0e01\u0e40\u0e23\u0e35\u0e22\u0e19\u0e01\u0e31\u0e1a Andrew Ng \
+    #             \u0e17\", \"simplify\": \"The brain is made up of billions of neurons. Each neuron is connected to many other neurons. The \
+    #             connections between neurons are called synapses. The connections between neurons are like a network. The brain is like a \
+    #             computer. The brain is like a network of computers.\nThe brain is like a network\", \"dates\": [\"2021-02-14T00:00:00\"], \
+    #             \"qna\": {\"questions\": [\"Recurrent neural networks find applications in what areas?\", \"What does a course begin with a \
+    #             sigmoid new single neuron?\", \"Neural networks find applications in what?\", \"What kind of backpropagation does gradient \
+    #             descent use?\"], \"answers\": [\"areas\", \"start\", \"language\", \"specific\"]}}"
+    
+    response = jsonify(message=json.dumps(response))
+    response.headers.add("Access-Allow-Control-Origin", "*")
+    return response
+
 
 if __name__ == '__main__':
-    app.run()
+    app.run(host= '0.0.0.0')
