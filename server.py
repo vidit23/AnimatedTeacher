@@ -157,6 +157,7 @@ def sendMoney():
 def getAudioAnalysis():
     arrivingRequest = json.loads(request.data.decode('utf-8'))
     print("Analysis request", arrivingRequest, "\n")
+
     videoPath = arrivingRequest.get('location')
     try:
         nameStartIndex = videoPath.rindex("/") + 1
@@ -184,7 +185,7 @@ def getAudioAnalysis():
     transcript = transcribe_gcs("gs://audio-files-zoom/" + audioFileName)
     print("Finished extracting the transcript from uploaded audio file", "\n")
 
-    # transcript = "We are going to be talking about the Great Financial Crisis of 2008. This crisis occurerd when banks were suddenly out of money to hold liquidity reserves to pay new potential customers. This happened when they lent money to a lot of people who could not pay back their loans. This resulted in a loss of livelihood for a lot of people and resulted in the entire US economy going down. That's all for today. Please remember your assignments are due tomorrow and the final examination will be held on March 14th. Please also do remember to submit payment for the school trip. Thank you." 
+    transcript = "We are going to be talking about the Great Financial Crisis of 2008. This crisis occurred when banks were suddenly out of money to hold liquidity reserves to pay new potential customers. This happened when they lent money to a lot of people who could not pay back their loans. This resulted in a loss of livelihood for a lot of people and resulted in the entire US economy going down. That's all for today. Please remember your assignments are due tomorrow and the final examination will be held on March 14th. Please also do remember to submit payment for the school trip. Thank you." 
     print(transcript)
 
     response = {"transcript": transcript}
@@ -208,6 +209,16 @@ def getAudioAnalysis():
         
         print("Simplification Generated", completion, "\n\n")
         response["simplify"] = completion["choices"][0]["text"]
+
+    if arrivingRequest.get('similar'):
+        simplifyPrompt = transcript + \
+                        "\nThis is similar to the time in " + arrivingRequest.get('topic') + " when, ",
+        completion = openai.Completion.create(
+            engine="davinci", prompt=simplifyPrompt, temperature=0.7, max_tokens=60,
+            top_p=1.0, frequency_penalty=0.0, presence_penalty=0.0, stop=["\n"] )
+        
+        print("Similar Generated", completion, "\n\n")
+        response["similar"] = "This is similar to the time in " + arrivingRequest.get('topic') + " when, " + completion["choices"][0]["text"]
 
     if arrivingRequest.get('dates'):
         dates = getDatesFromTranscript(transcript)
@@ -242,15 +253,13 @@ def getAudioAnalysis():
     #             sequence of words inside words themselves. You can think of them as sequence of characters.", "summarize": \
     #             "\u0e2d\u0e22\u0e32\u0e01\u0e40\u0e23\u0e35\u0e22\u0e19 Deep Learning \
     #             \u0e01\u0e47\u0e40\u0e25\u0e22\u0e2d\u0e22\u0e32\u0e01\u0e40\u0e23\u0e35\u0e22\u0e19\u0e01\u0e31\u0e1a Andrew Ng \
-    #             \u0e17", "simplify": "The brain is made up of billions of neurons. Each neuron is connected to many other neurons. The \
+    #             \u0e17", "similar": "This is same", "simplify": "The brain is made up of billions of neurons. Each neuron is connected to many other neurons. The \
     #             connections between neurons are called synapses. The connections between neurons are like a network. The brain is like a \
     #             computer. The brain is like a network of computers.\nThe brain is like a network", "dates": ["2021-02-14T00:00:00", "2021-03-15T00:00:00"], \
     #             "qna": {"questions": ["Recurrent neural networks find applications in what areas?", "What does a course begin with a \
     #             sigmoid new single neuron?", "Neural networks find applications in what?", "What kind of backpropagation does gradient \
     #             descent use?"], "answers": ["areas", "start", "language", "specific"]}}
     
-    # response = jsonify(message=response)
-    # response.headers.add("Access-Allow-Control-Origin", "*")
     return response
 
 @app.route('/getTextCompletion', methods=['POST'])
